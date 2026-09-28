@@ -1,0 +1,14 @@
+example.com {
+	@allowed {
+		import allowed-ips.caddy
+	}
+
+	handle @allowed {
+		root * /opt/vmpreparer/output
+		file_server browse
+	}
+
+	handle {
+		respond "ACCESS BLOCKED" 403
+	}
+}

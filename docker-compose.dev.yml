@@ -1,0 +1,9 @@
+services:
+  vmpreparer:
+    build: .
+    container_name: vmpreparer
+    volumes:
+      - ./output:/output
+      - ./config:/app/config
+    privileged: true
+    restart: unless-stopped

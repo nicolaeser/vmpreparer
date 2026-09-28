@@ -1,0 +1,15 @@
+.git
+.gitignore
+
+.idea
+
+client/
+
+output/
+builds/
+
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+AGENTNOTES.md

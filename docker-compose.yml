@@ -1,0 +1,9 @@
+services:
+  vmpreparer:
+    image: ghcr.io/nicolaeser/vmpreparer:latest
+    container_name: vmpreparer
+    volumes:
+      - ./output:/output
+      - ./config:/app/config
+    privileged: true
+    restart: unless-stopped
