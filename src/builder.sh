@@ -49,12 +49,11 @@ check_prerequisites() {
 
 download_image() {
     local url="$1" output="$2"
-    if [[ -f "$output" ]]; then
-        info "Base image already exists, skipping download (remove to force).\n"
-        return 0
-    fi
     info "Downloading $url...\n"
-    wget --tries=3 --timeout=60 -q --show-progress -O "$output" "$url"
+    if ! wget --tries=3 --timeout=60 -q --show-progress -O "$output" "$url"; then
+        rm -f "$output"
+        return 1
+    fi
 }
 
 get_os_type() {
@@ -195,7 +194,10 @@ main() {
         local url="${IMAGES[$img_key]}"
         local base_file="$BUILD_DIR/${img_key}-base.qcow2"
 
-        download_image "$url" "$base_file"
+        if ! download_image "$url" "$base_file"; then
+            warn "Could not download $img_key, keeping its previous images.\n"
+            continue
+        fi
 
         for variant in "${VARIANTS[@]}"; do
             local final_filename="${img_key}-${variant}.qcow2"
@@ -211,6 +213,8 @@ main() {
 
             update_json "$final_filename" "$img_key" "$variant" "$(get_os_type "$img_key")"
         done
+
+        rm -f "$base_file"
     done
 }
 
