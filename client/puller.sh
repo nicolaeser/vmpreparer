@@ -178,11 +178,9 @@ else
     if [[ $USE_UEFI -eq 1 ]]; then
         # Allocated after the import so the imported disk keeps the name vm-<id>-disk-0.
         qm set "$VMID" --efidisk0 "$STORAGE":1,efitype=4m,pre-enrolled-keys=0
-        # OVMF does not reliably see an IDE CD-ROM, so cloud-init would never get its config.
-        qm set "$VMID" --scsi1 "$STORAGE":cloudinit
-    else
-        qm set "$VMID" --ide2 "$STORAGE":cloudinit
     fi
+    # SCSI, not IDE: OVMF does not reliably see an IDE CD-ROM, so cloud-init would never get its config.
+    qm set "$VMID" --scsi1 "$STORAGE":cloudinit
     qm set "$VMID" --ciuser "$CIUSER"
     if [[ -n "$CIPASSWORD" ]]; then
         qm set "$VMID" --cipassword "$CIPASSWORD"
@@ -208,7 +206,7 @@ else
     echo -e "${CYAN}  Start VM: ${NC}qm start $VMID"
     echo -e "${YELLOW}  Note: CPU Type is set to 'host' (standard).${NC}"
     if [[ $USE_UEFI -eq 1 ]]; then
-        echo -e "${YELLOW}  Note: Firmware is UEFI (OVMF, q35), cloud-init drive is on scsi1.${NC}"
+        echo -e "${YELLOW}  Note: Firmware is UEFI (OVMF, q35).${NC}"
     fi
 fi
 
