@@ -21,3 +21,5 @@ Finished images land in `./output/`. Put that directory behind a web server that
 ```bash
 chmod +x puller.sh && ./puller.sh
 ```
+
+For GPU passthrough, pick UEFI when it asks for the firmware. The VM then gets OVMF, q35 and its cloud-init drive on SCSI instead of IDE, so cloud-init still runs on the first boot.
