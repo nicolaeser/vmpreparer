@@ -21,3 +21,5 @@ Finished images land in `./output/`. Put that directory behind a web server that
 ```bash
 chmod +x puller.sh && ./puller.sh
 ```
+
+It asks for the firmware: SeaBIOS, or UEFI (OVMF, q35) for GPU passthrough. Either way the cloud-init drive goes on SCSI rather than IDE, because OVMF doesn't reliably see an IDE CD-ROM.

@@ -79,6 +79,16 @@ read -rp "$(echo -e "${YELLOW}CPUs [2]:${NC} ")" CPUS
 CPUS=${CPUS:-2}
 CPU_TYPE="host"
 
+echo -e "${BLUE}Firmware:${NC}"
+echo "  1) SeaBIOS - legacy BIOS, i440fx"
+echo "  2) UEFI    - OVMF, q35, Secure Boot off (needed for GPU passthrough)"
+read -rp "$(echo -e "${YELLOW}Select firmware (1/2) [1]:${NC} ")" FIRMWARE
+case "${FIRMWARE:-1}" in
+    1) USE_UEFI=0 ;;
+    2) USE_UEFI=1 ;;
+    *) error "Firmware must be 1 or 2"; exit 1 ;;
+esac
+
 read -rp "$(echo -e "${YELLOW}Storage [local-lvm]:${NC} ")" STORAGE
 STORAGE=${STORAGE:-local-lvm}
 
@@ -158,11 +168,14 @@ else
     fi
 
     qm create "$VMID" --name "$VM_NAME" --memory "$MEMORY" --cores "$CPUS" --cpu "$CPU_TYPE" --net0 "$NET_OPTS"
+    if [[ $USE_UEFI -eq 1 ]]; then
+        qm set "$VMID" --bios ovmf --machine q35 --efidisk0 "$STORAGE":1,efitype=4m,pre-enrolled-keys=0
+    fi
     info "Importing disk..."
-    qm importdisk "$VMID" "$LOCAL_IMAGE_FILE" "$STORAGE"
-    qm set "$VMID" --scsihw virtio-scsi-single --scsi0 "$STORAGE":vm-"$VMID"-disk-0
-    qm set "$VMID" --boot c --bootdisk scsi0
-    qm set "$VMID" --ide2 "$STORAGE":cloudinit
+    qm set "$VMID" --scsihw virtio-scsi-single --scsi0 "$STORAGE":0,import-from="$LOCAL_IMAGE_FILE"
+    qm set "$VMID" --boot order=scsi0
+    # SCSI, not IDE: OVMF does not reliably see an IDE CD-ROM, so cloud-init would never get its config.
+    qm set "$VMID" --scsi1 "$STORAGE":cloudinit
     qm set "$VMID" --ciuser "$CIUSER"
     if [[ -n "$CIPASSWORD" ]]; then
         qm set "$VMID" --cipassword "$CIPASSWORD"
@@ -187,6 +200,9 @@ else
     success "VM $VMID created successfully!"
     echo -e "${CYAN}  Start VM: ${NC}qm start $VMID"
     echo -e "${YELLOW}  Note: CPU Type is set to 'host' (standard).${NC}"
+    if [[ $USE_UEFI -eq 1 ]]; then
+        echo -e "${YELLOW}  Note: Firmware is UEFI (OVMF, q35).${NC}"
+    fi
 fi
 
 info "Cleaning up temporary files..."
