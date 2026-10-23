@@ -169,16 +169,11 @@ else
 
     qm create "$VMID" --name "$VM_NAME" --memory "$MEMORY" --cores "$CPUS" --cpu "$CPU_TYPE" --net0 "$NET_OPTS"
     if [[ $USE_UEFI -eq 1 ]]; then
-        qm set "$VMID" --bios ovmf --machine q35
+        qm set "$VMID" --bios ovmf --machine q35 --efidisk0 "$STORAGE":1,efitype=4m,pre-enrolled-keys=0
     fi
     info "Importing disk..."
-    qm importdisk "$VMID" "$LOCAL_IMAGE_FILE" "$STORAGE"
-    qm set "$VMID" --scsihw virtio-scsi-single --scsi0 "$STORAGE":vm-"$VMID"-disk-0
-    qm set "$VMID" --boot c --bootdisk scsi0
-    if [[ $USE_UEFI -eq 1 ]]; then
-        # Allocated after the import so the imported disk keeps the name vm-<id>-disk-0.
-        qm set "$VMID" --efidisk0 "$STORAGE":1,efitype=4m,pre-enrolled-keys=0
-    fi
+    qm set "$VMID" --scsihw virtio-scsi-single --scsi0 "$STORAGE":0,import-from="$LOCAL_IMAGE_FILE"
+    qm set "$VMID" --boot order=scsi0
     # SCSI, not IDE: OVMF does not reliably see an IDE CD-ROM, so cloud-init would never get its config.
     qm set "$VMID" --scsi1 "$STORAGE":cloudinit
     qm set "$VMID" --ciuser "$CIUSER"
