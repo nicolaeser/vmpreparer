@@ -23,18 +23,62 @@ KEYBOARD_LAYOUT="${KEYBOARD_LAYOUT:-de}"
 TZ="${TIMEZONE:-Europe/Berlin}"
 export LIBGUESTFS_BACKEND="${LIBGUESTFS_BACKEND:-direct}"
 
+MISSING_ONLY=false
+for arg in "$@"; do
+    case "$arg" in
+        --missing-only) MISSING_ONLY=true ;;
+        *) error "Unknown argument: $arg" ;;
+    esac
+done
+
+exec 9>"${TMPDIR:-/tmp}/vmpreparer-builder.lock"
+if ! flock -n 9; then
+    warn "Another build is already running, skipping this one."
+    exit 0
+fi
+
+trim() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    printf '%s' "$s"
+}
+
 declare -A IMAGES
+IMAGE_KEYS=()
 CONFIG_FILE="$CONFIG_DIR/images.conf"
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
     error "Images config file not found at $CONFIG_FILE"
 fi
 
-while IFS='=' read -r key value; do
-    [[ "$key" =~ ^#.*$ ]] && continue
-    [[ -z "$key" ]] && continue
+# One "name=url" per line. Blank lines and lines starting with # are ignored,
+# and so is anything after " #" on a line. The last line needs no newline.
+while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(trim "${line%$'\r'}")"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    if [[ "$line" != *=* ]]; then
+        warn "Ignoring line without '=' in images.conf: $line"
+        continue
+    fi
+    key="$(trim "${line%%=*}")"
+    value="${line#*=}"
+    value="$(trim "${value%%[[:space:]]#*}")"
+    if [[ ! "$key" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        warn "Ignoring invalid image name in images.conf: $key"
+        continue
+    fi
+    if [[ -z "$value" ]]; then
+        warn "Ignoring $key in images.conf: no URL"
+        continue
+    fi
+    [[ -z "${IMAGES[$key]+x}" ]] && IMAGE_KEYS+=("$key")
     IMAGES["$key"]="$value"
 done < "$CONFIG_FILE"
+
+if [[ ${#IMAGE_KEYS[@]} -eq 0 ]]; then
+    error "No images listed in $CONFIG_FILE. Refusing to continue, since that would remove every image in $SERVE_DIR."
+fi
 
 VARIANTS_CONFIG="${BUILD_VARIANTS:-password sshkey}"
 read -ra VARIANTS <<< "$VARIANTS_CONFIG"
@@ -183,11 +227,75 @@ update_json() {
     chmod 644 "$list_file"
 }
 
+# images.conf and BUILD_VARIANTS decide what gets served. Remove every image
+# file and images.json entry that isn't one of name-variant.qcow2 for them.
+prune_unlisted() {
+    local -A expected=()
+    local key variant f name
+    for key in "${IMAGE_KEYS[@]}"; do
+        for variant in "${VARIANTS[@]}"; do
+            expected["${key}-${variant}.qcow2"]=1
+        done
+    done
+
+    shopt -s nullglob
+    for f in "$SERVE_DIR"/*.qcow2 "$SERVE_DIR"/*.qcow2.partial; do
+        name="$(basename "$f")"
+        if [[ "$name" == *.partial ]]; then
+            info "Removing $name, left over from an interrupted build."
+            rm -f "$f"
+        elif [[ -z "${expected[$name]:-}" ]]; then
+            info "Removing $name, it is not listed in images.conf or BUILD_VARIANTS."
+            rm -f "$f"
+        fi
+    done
+    shopt -u nullglob
+
+    local list_file="$SERVE_DIR/images.json"
+    [[ -f "$list_file" ]] || return 0
+
+    local keep=()
+    for name in "${!expected[@]}"; do
+        [[ -f "$SERVE_DIR/$name" ]] && keep+=("$name")
+    done
+    local keep_json='[]'
+    if [[ ${#keep[@]} -gt 0 ]]; then
+        keep_json="$(printf '%s\n' "${keep[@]}" | jq -R . | jq -s .)"
+    fi
+
+    local temp_json
+    temp_json=$(mktemp)
+    if jq --argjson keep "$keep_json" \
+          '.images |= map(select(.filename as $f | any($keep[]; . == $f)))' \
+          "$list_file" > "$temp_json"; then
+        mv "$temp_json" "$list_file"
+        chmod 644 "$list_file"
+    else
+        rm -f "$temp_json"
+        warn "images.json is not valid JSON, starting a new one."
+        echo '{"images": []}' > "$list_file"
+        chmod 644 "$list_file"
+    fi
+}
+
+has_all_variants() {
+    local key="$1" variant
+    for variant in "${VARIANTS[@]}"; do
+        [[ -f "$SERVE_DIR/${key}-${variant}.qcow2" ]] || return 1
+    done
+}
+
 main() {
     check_prerequisites
+    prune_unlisted
 
-    for img_key in "${!IMAGES[@]}"; do
+    for img_key in "${IMAGE_KEYS[@]}"; do
         if [[ -n "${SPECIFIC_IMAGES:-}" ]] && [[ ",$SPECIFIC_IMAGES," != *",$img_key,"* ]]; then
+            continue
+        fi
+
+        if [[ "$MISSING_ONLY" == true ]] && has_all_variants "$img_key"; then
+            info "$img_key is already built, skipping until the scheduled rebuild."
             continue
         fi
 
@@ -218,4 +326,4 @@ main() {
     done
 }
 
-main "$@"
+main

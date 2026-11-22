@@ -22,16 +22,17 @@ printenv | grep -v "no_proxy" >> /etc/environment
 
 run_builder() {
     echo "Starting build process at $(date)..."
-    /app/src/builder.sh > /proc/1/fd/1 2>/proc/1/fd/2
-    echo "Build process finished at $(date)."
+    if /app/src/builder.sh "$@" > /proc/1/fd/1 2>/proc/1/fd/2; then
+        echo "Build process finished at $(date)."
+    else
+        echo "Build process failed at $(date)."
+    fi
 }
 
-if [ -n "$(find "$OUTPUT_DIR" -maxdepth 1 -name '*.qcow2' -print -quit)" ]; then
-    echo "Existing images detected in $OUTPUT_DIR. Skipping immediate build."
-else
-    echo "No existing images found. Starting immediate build..."
-    run_builder
-fi
+# Drop images that are no longer in images.conf and build the ones that are
+# missing. The scheduled run below re-downloads and rebuilds all of them.
+echo "Syncing $OUTPUT_DIR with images.conf..."
+run_builder --missing-only
 
 if [[ -z "$SCHEDULE" ]]; then
     echo "No REGENERATE_SCHEDULE set. Exiting."
